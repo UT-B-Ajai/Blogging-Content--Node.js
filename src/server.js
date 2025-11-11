@@ -2,6 +2,7 @@ const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const connectDB = require("./config/db");
+const path = require("path");
 
 dotenv.config();
 connectDB();
@@ -12,7 +13,14 @@ app.use(cors());
 
 // Import routes
 const authRoutes = require("./routes/authRoutes");
+const blogRoutes = require("./routes/blogRoutes");
+
 app.use("/api", authRoutes);
+app.use("/api/blogs", blogRoutes);
+// Blog images public access
+app.use("/blog", express.static(path.join(__dirname, "public/blog")));
+console.log("Static path:", path.join(__dirname, "public/blog"));
+
 
 // Base route
 app.get("/", (req, res) => {

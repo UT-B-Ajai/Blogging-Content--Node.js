@@ -2,76 +2,64 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const validator = require("validator");
+const { successResponse, errorResponse } = require("../helpers/responseHelper");
 
-// REGISTER USER
+// ✅ REGISTER USER
 const registerUser = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
-   console.log(req.body);
-   
-    // Basic validation
-    if (!name) {
-      return res.status(400).json({ success: false, message: "Name must be required" });
-    }
 
-    if (!validator.isEmail(email)) {
-      return res.status(400).json({ success: false, message: "Invalid email format" });
-    }
+    if (!name) return errorResponse(res, "Name must be required", 400);
 
-    if (!validator.isLength(password, { min: 6 })) {
-      return res.status(400).json({ success: false, message: "Password must be at least 6 characters long" });
-    }
+    if (!validator.isEmail(email))
+      return errorResponse(res, "Invalid email format", 400);
+
+    if (!validator.isLength(password, { min: 6 }))
+      return errorResponse(res, "Password must be at least 6 characters long", 400);
 
     const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ success: false, message: "Email already registered" });
-    }
+    if (existingUser)
+      return errorResponse(res, "Email already registered", 400);
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const newUser = new User({
+    const newUser = await User.create({
       name,
       email,
       password: hashedPassword,
       role: role || "user",
     });
 
-    await newUser.save();
-
-    res.status(201).json({
-      success: true,
-      message: "User registered successfully",
-      data: {
+    return successResponse(
+      res,
+      {
         id: newUser._id,
         name: newUser.name,
         email: newUser.email,
         role: newUser.role,
       },
-    });
+      "User registered successfully",
+      201
+    );
   } catch (error) {
     console.error("Registration error:", error);
-    res.status(500).json({ success: false, message: "Internal Server Error" });
+    return errorResponse(res, "Internal Server Error");
   }
 };
 
-// LOGIN USER
+// ✅ LOGIN USER
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: "Email and password are required" });
-    }
+    if (!email || !password)
+      return errorResponse(res, "Email and password are required", 400);
 
     const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ success: false, message: "Invalid email or password" });
-    }
+    if (!user) return errorResponse(res, "Invalid email or password", 400);
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ success: false, message: "Invalid email or password" });
-    }
+    if (!isMatch) return errorResponse(res, "Invalid email or password", 400);
 
     const token = jwt.sign(
       { id: user._id, role: user.role },
@@ -79,22 +67,23 @@ const loginUser = async (req, res) => {
       { expiresIn: "1d" }
     );
 
-    res.json({
-      success: true,
-      message: "Login successful",
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
+    return successResponse(
+      res,
+      {
+        token,
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
       },
-    });
+      "Login successful"
+    );
   } catch (error) {
     console.error("Login error:", error);
-    res.status(500).json({ success: false, message: "Internal Server Error" });
+    return errorResponse(res, "Internal Server Error");
   }
 };
 
-// ✅ EXPORT CORRECTLY
 module.exports = { registerUser, loginUser };
