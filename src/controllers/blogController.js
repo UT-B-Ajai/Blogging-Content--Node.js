@@ -1,7 +1,9 @@
 const multer = require("multer");
 const path = require("path");
 const Blog = require("../models/Blog");
-const { successResponse, errorResponse } = require("../helpers/responseHelper");
+const { successResponse, errorResponse ,getPagination } = require("../helpers/responseHelper");
+const e = require("express");
+const { log } = require("console");
 
 // ✅ Multer storage
 const storage = multer.diskStorage({
@@ -80,17 +82,53 @@ exports.updateBlog = (req, res) => {
 // ✅ GET ALL BLOGS
 exports.getBlogs = async (req, res) => {
   try {
-    const blogs = await Blog.find().sort({ createdAt: -1 });
+    // Extract query parameters and set defaults
+    let { page = 1, perPage = 10, search = "" } = req.query;
 
-    const baseUrl = process.env.BASE_URL;
+    // Ensure numeric values
+    page = Number(page) || 1;
+    perPage = Number(perPage) || 10;
+    search = search.trim();
 
-    const finalBlogs = blogs.map(blog => ({
+    // Search condition
+    const searchCondition = search
+      ? {
+          $or: [
+            { title: { $regex: search, $options: "i" } },
+            { content: { $regex: search, $options: "i" } },
+          ],
+        }
+      : {};
+
+    // Count total matching records
+    const totalRecords = await Blog.countDocuments(searchCondition);
+
+    // Fetch paginated blogs
+    const blogs = await Blog.find(searchCondition)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * perPage)
+      .limit(perPage);
+
+    // Generate base URL for images
+    const baseUrl = process.env.BASE_URL || "http://localhost:5000";
+
+    const finalBlogs = blogs.map((blog, index) => ({
+         s_no: (page - 1) * perPage + index + 1,
       ...blog._doc,
       image_url: blog.image ? `${baseUrl}/blog/${blog.image}` : null,
-      cover_image_url: blog.cover_image ? `${baseUrl}/blog/${blog.cover_image}` : null,
+      cover_image_url: blog.cover_image
+        ? `${baseUrl}/blog/${blog.cover_image}`
+        : null,
     }));
 
-    return successResponse(res, finalBlogs, "Blogs fetched successfully");
+    // ✅ Always send correct pagination
+    const pagination = getPagination(page, perPage, totalRecords);
+
+    return successResponse(
+      res,
+      { blogs: finalBlogs, pagination },
+      "Blogs fetched successfully"
+    );
   } catch (error) {
     return errorResponse(res, error.message);
   }
@@ -117,6 +155,30 @@ exports.deleteBlog = async (req, res) => {
 
     await blog.deleteOne();
     return successResponse(res, null, "Blog deleted successfully");
+  } catch (error) {
+    return errorResponse(res, error.message);
+  }
+};
+
+exports.addToWishlist = async (req, res) => {
+  try {
+    
+    const blog = await Blog.findById(req.body.blog_id);
+    if (!blog) return errorResponse(res, "Blog not found", 404);  
+    blog.is_wishlist = 1; // Mark as in wishlist
+    await blog.save();
+    return successResponse(res, blog, "Blog added to wishlist successfully");
+  } catch (error) {
+    return errorResponse(res, error.message);
+  } 
+};
+exports.removeFromWishlist = async (req, res) => {
+  try {
+    const blog = await Blog.findById(req.body.blog_id);  
+    if (!blog) return errorResponse(res, "Blog not found", 404);
+    blog.is_wishlist = 0; // Mark as not in wishlist
+    await blog.save();
+    return successResponse(res, blog, "Blog removed from wishlist successfully");
   } catch (error) {
     return errorResponse(res, error.message);
   }

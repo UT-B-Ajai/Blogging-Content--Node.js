@@ -14,13 +14,18 @@ app.use(cors());
 // Import routes
 const authRoutes = require("./routes/authRoutes");
 const blogRoutes = require("./routes/blogRoutes");
+const userRoutes = require("./routes/userRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
+const wishlistRoutes = require("./routes/wishlistRoutes");
 
 app.use("/api", authRoutes);
 app.use("/api/blogs", blogRoutes);
 // Blog images public access
 app.use("/blog", express.static(path.join(__dirname, "public/blog")));
 console.log("Static path:", path.join(__dirname, "public/blog"));
-
+app.use("/api/users", userRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/wishlist", wishlistRoutes);
 
 // Base route
 app.get("/", (req, res) => {

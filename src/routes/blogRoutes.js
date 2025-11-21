@@ -16,5 +16,4 @@ router.get("/", protect, getBlogs);
 router.get("/:id", protect, getBlogById);
 router.put("/:id", protect, updateBlog);
 router.delete("/:id", protect, deleteBlog);
-
 module.exports = router;

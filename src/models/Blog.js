@@ -24,6 +24,10 @@ const blogSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    is_wishlist: {
+    type: Number,
+    default: 0, // 0 = not in wishlist, 1 = in wishlist
+    },
     deleted_at: {
       type: Date,
       default: null, // set when soft deleted
