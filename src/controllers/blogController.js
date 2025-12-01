@@ -2,6 +2,7 @@ const multer = require("multer");
 const path = require("path");
 const Blog = require("../models/Blog");
 const Comment = require("../models/Comment");
+const Wishlist = require("../models/Wishlist");
 const { successResponse, errorResponse ,getPagination } = require("../helpers/responseHelper");
 const e = require("express");
 const { log } = require("console");
@@ -86,8 +87,6 @@ exports.getBlogs = async (req, res) => {
     let { page, perPage, search = "" } = req.query;
 
     search = search.trim();
-
-    // 🔍 Search condition
     const searchCondition = search
       ? {
           $or: [
@@ -97,14 +96,14 @@ exports.getBlogs = async (req, res) => {
         }
       : {};
 
-    // 🔥 Check if pagination is requested
     const paginationEnabled = page && perPage;
-
     let blogs;
     const baseUrl = process.env.BASE_URL || "http://localhost:5000";
 
+    // get logged user ID (optional)
+    const userId = req.user ? req.user.id : null;
+
     if (paginationEnabled) {
-      // Convert to numbers
       page = Number(page);
       perPage = Number(perPage);
 
@@ -116,15 +115,24 @@ exports.getBlogs = async (req, res) => {
         .skip((page - 1) * perPage)
         .limit(perPage);
 
-      const finalBlogs = blogs.map((blog, index) => ({
-        s_no: (page - 1) * perPage + index + 1,
-        ...blog._doc,
-        image_url: blog.image ? `${baseUrl}/blog/${blog.image}` : null,
-        cover_image_url: blog.cover_image
-          ? `${baseUrl}/blog/${blog.cover_image}`
-          : null,
-        author: blog.user_id?.name,
-      }));
+      const finalBlogs = await Promise.all(
+        blogs.map(async (blog, index) => {
+          const isWishlisted = userId
+            ? await Wishlist.findOne({ user_id: userId, blog_id: blog._id })
+            : null;
+
+          return {
+            s_no: (page - 1) * perPage + index + 1,
+            ...blog._doc,
+            image_url: blog.image ? `${baseUrl}/blog/${blog.image}` : null,
+            cover_image_url: blog.cover_image
+              ? `${baseUrl}/blog/${blog.cover_image}`
+              : null,
+            author: blog.user_id?.name,
+            is_wishlist: !!isWishlisted,
+          };
+        })
+      );
 
       return successResponse(
         res,
@@ -134,33 +142,42 @@ exports.getBlogs = async (req, res) => {
         },
         "Blogs fetched successfully"
       );
-
-    } else {
-      // 🚀 No pagination → Return all blogs
-      blogs = await Blog.find(searchCondition)
-        .populate("user_id", "name email")
-        .sort({ created_at: -1 });
-
-      const finalBlogs = blogs.map((blog, index) => ({
-        s_no: index + 1,
-        ...blog._doc,
-        image_url: blog.image ? `${baseUrl}/blog/${blog.image}` : null,
-        cover_image_url: blog.cover_image
-          ? `${baseUrl}/blog/${blog.cover_image}`
-          : null,
-        author: blog.user_id?.name,
-      }));
-
-      return successResponse(
-        res,
-        { blogs: finalBlogs },
-        "Blogs fetched successfully"
-      );
     }
+
+    // NO PAGINATION
+    blogs = await Blog.find(searchCondition)
+      .populate("user_id", "name email")
+      .sort({ created_at: -1 });
+
+    const finalBlogs = await Promise.all(
+      blogs.map(async (blog, index) => {
+        const isWishlisted = userId
+          ? await Wishlist.findOne({ user_id: userId, blog_id: blog._id })
+          : null;
+
+        return {
+          s_no: index + 1,
+          ...blog._doc,
+          image_url: blog.image ? `${baseUrl}/blog/${blog.image}` : null,
+          cover_image_url: blog.cover_image
+            ? `${baseUrl}/blog/${blog.cover_image}`
+            : null,
+          author: blog.user_id?.name,
+          is_wishlist: !!isWishlisted,
+        };
+      })
+    );
+
+    return successResponse(
+      res,
+      { blogs: finalBlogs },
+      "Blogs fetched successfully"
+    );
   } catch (error) {
     return errorResponse(res, error.message);
   }
 };
+
 
 exports.ourBlogs = async (req, res) => {
   try {
@@ -202,15 +219,26 @@ exports.ourBlogs = async (req, res) => {
         .skip((page - 1) * perPage)
         .limit(perPage);
 
-      const finalBlogs = blogs.map((blog, index) => ({
-        s_no: (page - 1) * perPage + index + 1,
-        ...blog._doc,
-        image_url: blog.image ? `${baseUrl}/blog/${blog.image}` : null,
-        cover_image_url: blog.cover_image
-          ? `${baseUrl}/blog/${blog.cover_image}`
-          : null,
-        author: blog.user_id?.name,
-      }));
+ const finalBlogs = await Promise.all(
+      blogs.map(async (blog, index) => {
+        // Check if this blog is in the logged-in user's wishlist
+        const isWishlisted = await Wishlist.findOne({
+          user_id: userId,
+          blog_id: blog._id,
+        });
+
+        return {
+          s_no: (page - 1) * perPage + index + 1,
+          ...blog._doc,
+          image_url: blog.image ? `${baseUrl}/blog/${blog.image}` : null,
+          cover_image_url: blog.cover_image
+            ? `${baseUrl}/blog/${blog.cover_image}`
+            : null,
+          author: blog.user_id?.name,
+          is_wishlist: !!isWishlisted, // ❤️ red heart only if user added
+        };
+      })
+    );
 
       return successResponse(
         res,
@@ -311,24 +339,30 @@ exports.deleteBlog = async (req, res) => {
 
 exports.addToWishlist = async (req, res) => {
   try {
-    
-    const blog = await Blog.findById(req.body.blog_id);
-    if (!blog) return errorResponse(res, "Blog not found", 404);  
-    blog.is_wishlist = 1; // Mark as in wishlist
-    await blog.save();
-    return successResponse(res, blog, "Blog added to wishlist successfully");
+    const { blog_id } = req.body;
+    const user_id = req.user.id; // from token
+
+    const already = await Wishlist.findOne({ user_id, blog_id });
+    if (already)
+      return successResponse(res, null, "Already added to wishlist");
+
+    const data = await Wishlist.create({ user_id, blog_id });
+
+    return successResponse(res, data, "Blog added to wishlist");
   } catch (error) {
     return errorResponse(res, error.message);
-  } 
+  }
 };
+
 
 exports.removeFromWishlist = async (req, res) => {
   try {
-    const blog = await Blog.findById(req.body.blog_id);  
-    if (!blog) return errorResponse(res, "Blog not found", 404);
-    blog.is_wishlist = 0; // Mark as not in wishlist
-    await blog.save();
-    return successResponse(res, blog, "Blog removed from wishlist successfully");
+    const { blog_id } = req.body;
+    const user_id = req.user.id;
+
+    await Wishlist.findOneAndDelete({ user_id, blog_id });
+
+    return successResponse(res, null, "Blog removed from wishlist");
   } catch (error) {
     return errorResponse(res, error.message);
   }
