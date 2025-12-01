@@ -11,10 +11,14 @@ exports.getdashboardData = async (req, res) => {
     // Count total blogs
     const blogCount = await Blog.countDocuments();
 
+    // Count wishlist blogs (is_wishlist = 1)
+    const wishlistCount = await Blog.countDocuments({ is_wishlist: 1 });
+
     // Prepare response
     const dashboardData = {
       total_users: userCount,
-      total_blogs: blogCount
+      total_blogs: blogCount,
+      total_wishlist: wishlistCount
     };
 
     return successResponse(res, dashboardData, "Dashboard data fetched successfully");

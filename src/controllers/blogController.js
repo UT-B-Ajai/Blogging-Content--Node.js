@@ -1,6 +1,7 @@
 const multer = require("multer");
 const path = require("path");
 const Blog = require("../models/Blog");
+const Comment = require("../models/Comment");
 const { successResponse, errorResponse ,getPagination } = require("../helpers/responseHelper");
 const e = require("express");
 const { log } = require("console");
@@ -82,13 +83,91 @@ exports.updateBlog = (req, res) => {
 // ✅ GET ALL BLOGS
 exports.getBlogs = async (req, res) => {
   try {
-    // Extract query parameters and set defaults
-    let { page = 1, perPage = 10, search = "" } = req.query;
+    let { page, perPage, search = "" } = req.query;
 
-    // Ensure numeric values
-    page = Number(page) || 1;
-    perPage = Number(perPage) || 10;
     search = search.trim();
+
+    // 🔍 Search condition
+    const searchCondition = search
+      ? {
+          $or: [
+            { title: { $regex: search, $options: "i" } },
+            { content: { $regex: search, $options: "i" } },
+          ],
+        }
+      : {};
+
+    // 🔥 Check if pagination is requested
+    const paginationEnabled = page && perPage;
+
+    let blogs;
+    const baseUrl = process.env.BASE_URL || "http://localhost:5000";
+
+    if (paginationEnabled) {
+      // Convert to numbers
+      page = Number(page);
+      perPage = Number(perPage);
+
+      const totalRecords = await Blog.countDocuments(searchCondition);
+
+      blogs = await Blog.find(searchCondition)
+        .populate("user_id", "name email")
+        .sort({ created_at: -1 })
+        .skip((page - 1) * perPage)
+        .limit(perPage);
+
+      const finalBlogs = blogs.map((blog, index) => ({
+        s_no: (page - 1) * perPage + index + 1,
+        ...blog._doc,
+        image_url: blog.image ? `${baseUrl}/blog/${blog.image}` : null,
+        cover_image_url: blog.cover_image
+          ? `${baseUrl}/blog/${blog.cover_image}`
+          : null,
+        author: blog.user_id?.name,
+      }));
+
+      return successResponse(
+        res,
+        {
+          blogs: finalBlogs,
+          pagination: getPagination(page, perPage, totalRecords),
+        },
+        "Blogs fetched successfully"
+      );
+
+    } else {
+      // 🚀 No pagination → Return all blogs
+      blogs = await Blog.find(searchCondition)
+        .populate("user_id", "name email")
+        .sort({ created_at: -1 });
+
+      const finalBlogs = blogs.map((blog, index) => ({
+        s_no: index + 1,
+        ...blog._doc,
+        image_url: blog.image ? `${baseUrl}/blog/${blog.image}` : null,
+        cover_image_url: blog.cover_image
+          ? `${baseUrl}/blog/${blog.cover_image}`
+          : null,
+        author: blog.user_id?.name,
+      }));
+
+      return successResponse(
+        res,
+        { blogs: finalBlogs },
+        "Blogs fetched successfully"
+      );
+    }
+  } catch (error) {
+    return errorResponse(res, error.message);
+  }
+};
+
+exports.ourBlogs = async (req, res) => {
+  try {
+    let { page, perPage, search = "" } = req.query;
+    search = search.trim();
+
+    const userId = req.user._id;
 
     // Search condition
     const searchCondition = search
@@ -100,52 +179,122 @@ exports.getBlogs = async (req, res) => {
         }
       : {};
 
-    // Count total matching records
-    const totalRecords = await Blog.countDocuments(searchCondition);
+    // FINAL FILTER: show only logged-in user's blogs
+    const filter = {
+      user_id: userId,
+      ...searchCondition,
+    };
 
-    // Fetch paginated blogs
-    const blogs = await Blog.find(searchCondition)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * perPage)
-      .limit(perPage);
-
-    // Generate base URL for images
+    const paginationEnabled = page && perPage;
     const baseUrl = process.env.BASE_URL || "http://localhost:5000";
 
+    let blogs;
+
+    if (paginationEnabled) {
+      page = Number(page);
+      perPage = Number(perPage);
+
+      const totalRecords = await Blog.countDocuments(filter);
+
+      blogs = await Blog.find(filter)
+        .populate("user_id", "name email")
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * perPage)
+        .limit(perPage);
+
+      const finalBlogs = blogs.map((blog, index) => ({
+        s_no: (page - 1) * perPage + index + 1,
+        ...blog._doc,
+        image_url: blog.image ? `${baseUrl}/blog/${blog.image}` : null,
+        cover_image_url: blog.cover_image
+          ? `${baseUrl}/blog/${blog.cover_image}`
+          : null,
+        author: blog.user_id?.name,
+      }));
+
+      return successResponse(
+        res,
+        {
+          blogs: finalBlogs,
+          pagination: getPagination(page, perPage, totalRecords),
+        },
+        "Blogs fetched successfully"
+      );
+    }
+
+    // WITHOUT PAGINATION
+    blogs = await Blog.find(filter)
+      .populate("user_id", "name email")
+      .sort({ createdAt: -1 });
+
     const finalBlogs = blogs.map((blog, index) => ({
-         s_no: (page - 1) * perPage + index + 1,
+      s_no: index + 1,
       ...blog._doc,
       image_url: blog.image ? `${baseUrl}/blog/${blog.image}` : null,
       cover_image_url: blog.cover_image
         ? `${baseUrl}/blog/${blog.cover_image}`
         : null,
+      author: blog.user_id?.name,
     }));
 
-    // ✅ Always send correct pagination
-    const pagination = getPagination(page, perPage, totalRecords);
+    return successResponse(res, { blogs: finalBlogs }, "Blogs fetched successfully");
 
-    return successResponse(
-      res,
-      { blogs: finalBlogs, pagination },
-      "Blogs fetched successfully"
-    );
   } catch (error) {
     return errorResponse(res, error.message);
   }
 };
-
 
 // ✅ GET BLOG BY ID
+// exports.getBlogById = async (req, res) => {
+//   try {
+//     const blog = await Blog.findById(req.params.id).populate("user_id", "name email");
+//     if (!blog) return errorResponse(res, "Blog not found", 404);
+
+//     return successResponse(res, blog, "Blog fetched successfully");
+//   } catch (error) {
+//     return errorResponse(res, error.message);
+//   }
+// };
 exports.getBlogById = async (req, res) => {
   try {
-    const blog = await Blog.findById(req.params.id);
-    if (!blog) return errorResponse(res, "Blog not found", 404);
+    const baseUrl = process.env.BASE_URL || "http://localhost:5000";
+    const blog = await Blog.findById(req.params.id)
+      .populate("user_id", "name email");
 
-    return successResponse(res, blog, "Blog fetched successfully");
+    if (!blog) {
+      return errorResponse(res, "Blog not found", 404);
+    }
+        // Generate image URLs
+    const blogData = {
+      ...blog.toObject(),
+      image_url: blog.image ? `${baseUrl}/blog/${blog.image}` : null,
+      cover_image_url: blog.cover_image
+        ? `${baseUrl}/blog/${blog.cover_image}`
+        : null,
+    };
+
+    const comments = await Comment.find({ blog_id: req.params.id })
+      .populate("user_id", "name email")
+      .sort({ created_at: -1 });
+
+    const formattedComments = comments.map((c) => ({
+      _id: c._id,
+      comment: c.comment,
+      user: c.user_id,
+      created_at: c.created_at,   
+    }));
+
+    const responseData = {
+      blog: blogData,
+      comments: formattedComments,
+    };
+
+    return successResponse(res, responseData, "Blog fetched successfully");
   } catch (error) {
-    return errorResponse(res, error.message);
+    return errorResponse(res, error.message, 500);
   }
 };
+
 
 // ✅ DELETE BLOG
 exports.deleteBlog = async (req, res) => {
@@ -172,6 +321,7 @@ exports.addToWishlist = async (req, res) => {
     return errorResponse(res, error.message);
   } 
 };
+
 exports.removeFromWishlist = async (req, res) => {
   try {
     const blog = await Blog.findById(req.body.blog_id);  
