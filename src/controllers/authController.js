@@ -55,12 +55,15 @@ const loginUser = async (req, res) => {
     if (!email || !password)
       return errorResponse(res, "Email and password are required", 400);
 
+    // Find user by email
     const user = await User.findOne({ email });
-    if (!user) return errorResponse(res, "Invalid email or password", 400);
+    if (!user) return errorResponse(res, "User not registered", 404);
 
+    // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return errorResponse(res, "Invalid email or password", 400);
+    if (!isMatch) return errorResponse(res, "Incorrect password", 400);
 
+    // Generate JWT token
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET,

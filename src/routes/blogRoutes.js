@@ -8,12 +8,15 @@ const {
   getBlogById,
   updateBlog,
   deleteBlog,
+  ourBlogs,
 } = require("../controllers/blogController");
 
 // ✅ Routes protected by token
 router.post("/", protect, createBlog);
 router.get("/", protect, getBlogs);
+router.get("/my", protect, ourBlogs);
 router.get("/:id", protect, getBlogById);
 router.put("/:id", protect, updateBlog);
 router.delete("/:id", protect, deleteBlog);
+
 module.exports = router;
