@@ -57,7 +57,18 @@ const loginUser = async (req, res) => {
 
     // Find user by email
     const user = await User.findOne({ email });
+
+    // User not found
     if (!user) return errorResponse(res, "User not registered", 404);
+
+    // Check if the user is soft-deleted
+    if (user.deleted_at !== null) {
+      return errorResponse(
+        res,
+        "Your account has been deleted by admin",
+        403
+      );
+    }
 
     // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
@@ -88,5 +99,6 @@ const loginUser = async (req, res) => {
     return errorResponse(res, "Internal Server Error");
   }
 };
+
 
 module.exports = { registerUser, loginUser };
