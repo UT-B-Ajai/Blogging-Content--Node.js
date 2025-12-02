@@ -15,6 +15,7 @@ exports.getUsers = async (req, res) => {
     perPage = parseInt(perPage, 10) || 10;
     search = search.trim();
 
+     let baseCondition = { deleted_at: null };
     // 3️⃣ Build search condition (case-insensitive)
     const searchCondition = search
       ? {
@@ -26,11 +27,12 @@ exports.getUsers = async (req, res) => {
         }
       : {};
 
+     const finalCondition = { ...baseCondition, ...searchCondition };
     // 4️⃣ Get total count for pagination
-    const totalRecords = await User.countDocuments(searchCondition);
+    const totalRecords = await User.countDocuments(finalCondition);
 
     // 4️⃣ Fetch paginated users
-    const users = await User.find(searchCondition)
+    const users = await User.find(finalCondition)
       .sort({ createdAt: -1 })
       .skip((page - 1) * perPage)
       .limit(perPage)
@@ -74,10 +76,12 @@ exports.getUserById = async (req, res) => {
 // ✅ DELETE User
 exports.deleteUser = async (req, res) => {
   try {
-    const User = await User.findById(req.params.id);
-    if (!User) return errorResponse(res, "User not found", 404);
+    const user = await User.findById(req.params.id);
+    if (!user) return errorResponse(res, "User not found", 404);
+console.log(user, "user");
 
-    await User.deleteOne();
+     user.deleted_at = new Date(); // add timestamp
+    await user.save();
     return successResponse(res, null, "User deleted successfully");
   } catch (error) {
     return errorResponse(res, error.message);
